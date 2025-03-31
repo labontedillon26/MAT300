@@ -1,0 +1,427 @@
+---
+title: Analytics Report Shell
+author: 
+  - name: Dillon Labonte
+    email: dillon.labonte@snhu.edu
+    affiliations: 
+      - name: Southern New Hampshire University
+date: today
+date-format: long
+theme: lux
+toc: true
+code-fold: true
+warning: false
+message: false
+---
+
+```{r global-options, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(patchwork)
+library(kableExtra)
+
+options(kable_styling_bootstrap_options = c("hover", "striped"))
+
+theme_set(theme_bw(base_size = 14))
+
+data <- read_csv("energy_dataset.csv")
+names(data) <- janitor::make_clean_names(names(data))
+
+# adding generation_total column to data set
+data <- data |>
+  mutate(generation_total = generation_biomass + generation_fossil_brown_coal_lignite + generation_fossil_coal_derived_gas + generation_fossil_gas + generation_fossil_hard_coal + generation_fossil_oil + generation_fossil_oil_shale + generation_fossil_peat + generation_geothermal + generation_hydro_pumped_storage_consumption + generation_hydro_run_of_river_and_poundage + generation_hydro_water_reservoir + generation_marine + generation_nuclear + generation_other + generation_other_renewable + generation_solar + generation_waste + generation_wind_offshore + generation_wind_onshore)
+
+# adding renewable_generation_total column to data set
+data <- data |>
+  mutate(renewable_generation_total = generation_biomass + generation_geothermal + generation_hydro_run_of_river_and_poundage + generation_hydro_water_reservoir + generation_hydro_pumped_storage_consumption + generation_marine + generation_other_renewable + generation_solar + generation_wind_offshore + generation_wind_onshore)
+
+# adding nonrenewable_generation_total column to data set
+data <- data |>
+  mutate(nonrenewable_generation_total = generation_fossil_brown_coal_lignite + generation_fossil_coal_derived_gas + generation_fossil_gas + generation_fossil_hard_coal + generation_fossil_oil + generation_fossil_oil_shale + generation_fossil_peat)
+
+# adding hour_of_day column to data set
+data <- data |>
+  mutate(hour_of_day = hour(time))
+
+# adding month_of_year column to data set
+data <- data |>
+  mutate(month_of_year = month(time, label = TRUE, abbr = TRUE))
+
+# calculating RMSE of TSO model for price_day_ahead
+tso_rmse <- data |>
+  rmse(price_day_ahead, price_actual)
+
+#Split data into training, test, and validation sets
+set.seed(1234567890)
+data_splits <- initial_split(data, prop = 0.75)
+
+train <- training(data_splits)
+temp <- testing(data_splits)
+
+set.seed(11111)
+test_splits <- initial_split(temp, prop = 0.5)
+validation <- training(test_splits)
+test <- testing(test_splits)
+
+```
+
+```{r}
+
+# creating a predictors data set to use for model building
+predictors <- train |>
+  select(-c(time, generation_hydro_pumped_storage_aggregated, forecast_wind_offshore_eday_ahead, total_load_actual, price_day_ahead, generation_total, renewable_generation_total, nonrenewable_generation_total))
+
+```
+
+
+
+
+## Statement of Purpose
+
+The price of electrical power is a constantly changing variable that profoundly impacts society. Being able to predict electrical power prices a day in advance would allow for increased grid stability which is necessary to maintain a delicate balance of electrical supply and demand that the grid requires. These prediction allow producers of electricity to decide how much power to produce and when, and industrial consumers to decide when to use power for energy intensive processes. 
+
+In this day and age renewable energies are becoming more popular and their power production and usage is ever increasing. However, renewable energy sources are variable and often rely on weather conditions. Accurate predictions of day ahead prices will allow grid operators to deploy backup power sources, such as fossil fuels, when needed during renewable energy fluctuations.
+
+This project aims to build a regression model to predict the electrical power prices a day in advance by analyzing generation, demand, and weather forecasts. These predictions support grid operators, producers, and consumers in their decision making, improving the reliability and sustainability of the electrical energy market. 
+
+## Executive Summary
+
+
+
+## Introduction
+
+ 
+
+## Exploratory Data Analysis
+
+
+
+```{r}
+
+tso_rmse |>
+  kable() |>
+  kable_styling()
+
+```
+
+```{r}
+
+train |>
+  head() |>
+  kable() |>
+  kable_styling()
+
+```
+
+```{r}
+
+priceDayAheadDistribution <- train |>
+  ggplot() +
+  geom_histogram(aes(x = price_actual, y = after_stat(density)), alpha = 0.6) +
+  geom_density(aes(x = price_actual), fill = 'red', alpha = 0.3)
+
+priceDayAheadDistribution
+
+```
+
+```{r}
+
+plot1 <- train |>
+  ggplot() +
+  geom_point(aes(x = generation_total, y = price_actual), alpha = 0.3) +
+  geom_smooth(aes(x = generation_total, y = price_actual))
+
+plot2 <- train |>
+  ggplot() +
+  geom_point(aes(x = total_load_actual, y = price_actual), alpha = 0.3) +
+  geom_smooth(aes(x = total_load_actual, y = price_actual))
+
+plot3 <- train |>
+  ggplot() +
+  geom_point(aes(x = total_load_forecast, y = price_actual), alpha = 0.3) +
+  geom_smooth(aes(x = total_load_forecast, y = price_actual))
+
+plot4 <- train |>
+  ggplot() +
+  geom_point(aes(x = total_load_forecast, y = total_load_actual), alpha = 0.3) +
+  geom_smooth(aes(x = total_load_forecast, y = total_load_actual))
+
+plot5 <- train |>
+  ggplot() +
+  geom_point(aes(x = price_day_ahead, y = price_actual), alpha = 0.3) +
+  geom_smooth(aes(x = price_day_ahead, y = price_actual))
+
+plot6 <- train |>
+  ggplot() +
+  geom_point(aes(x = renewable_generation_total, y = price_actual), alpha = 0.3) +
+  geom_smooth(aes(x = renewable_generation_total, y = price_actual))
+
+plot7 <- train |>
+  ggplot() +
+  geom_point(aes(x = nonrenewable_generation_total, y = price_actual), alpha = 0.3) +
+  geom_smooth(aes(x = nonrenewable_generation_total, y = price_actual))
+
+plot8 <- train|>
+  ggplot() +
+  geom_boxplot(aes(group = hour_of_day, x = hour_of_day, y = price_actual)) +
+  geom_smooth(aes(x = hour_of_day, y = price_actual))
+
+plot9 <- train|>
+  ggplot() +
+  geom_boxplot(aes(group = month_of_year, x = month_of_year, y = price_actual)) +
+  geom_smooth(aes(x = month_of_year, y = price_actual))
+
+```
+
+```{r}
+#| fig-height: 15
+#| fig-width: 10
+
+plot1 / plot2 / plot3
+
+```
+
+```{r}
+#| fig-height: 15
+#| fig-width: 10
+
+plot4 / plot5 / plot6
+
+```
+
+```{r}
+#| fig-height: 15
+#| fig-width: 10
+
+plot7 / plot8 / plot9
+
+```
+
+
+
+## Model Construction
+
+
+
+```{r}
+
+train_folds <- vfold_cv(train, v = 5)
+
+```
+
+```{r}
+
+lin_reg_spec <- linear_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet")
+
+lin_reg_rec <- recipe(price_actual ~ ., data = predictors) %>%
+  step_dummy(all_nominal_predictors()) |>
+  step_other(all_nominal_predictors()) %>%
+  step_impute_median(all_numeric_predictors())
+
+lin_reg_wf <- workflow() %>%
+  add_model(lin_reg_spec) %>%
+  add_recipe(lin_reg_rec)
+
+lin_reg_grid <- grid_regular(
+  penalty(),
+  mixture(),
+  levels = 10
+)
+
+n_cores <- parallel::detectCores()
+cluster <- parallel::makeCluster(n_cores - 1, type = "PSOCK")
+doParallel::registerDoParallel(cluster)
+
+tictoc::tic()
+
+lin_reg_tune_results <- lin_reg_wf %>%
+  tune_grid(
+    grid = lin_reg_grid,
+    resamples = train_folds
+  )
+
+parallel::stopCluster(cluster)
+
+tictoc::toc()
+
+```
+
+```{r}
+
+lin_reg_tune_results %>%
+  show_best(n = 10, metric = "rmse") |>
+  kable() |>
+  kable_styling()
+
+```
+
+```{r}
+
+best_lin_reg <- lin_reg_tune_results %>%
+  select_best(metric = "rmse")
+
+lin_reg_wf_final <- lin_reg_wf %>%
+  finalize_workflow(best_lin_reg)
+
+lin_reg_fit <- lin_reg_wf_final %>%
+  fit(train)
+
+```
+
+```{r}
+
+lin_reg_fit |>
+  augment(train) |>
+  rmse(.pred, price_actual) |>
+  kable() |>
+  kable_styling()
+
+```
+
+```{r}
+
+rf_spec <- rand_forest(mtry = tune(), trees = tune()) %>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+
+rf_rec <- recipe(price_actual ~ ., data = predictors) %>%
+  step_dummy(all_nominal_predictors()) |>
+  step_other(all_nominal_predictors()) %>%
+  step_impute_median(all_numeric_predictors())
+
+rf_wf <- workflow() %>%
+  add_model(rf_spec) %>%
+  add_recipe(rf_rec)
+
+rf_grid <- grid_regular(
+  mtry(range = c(1, 10)),
+  trees(),
+  levels = 5
+)
+
+n_cores <- parallel::detectCores()
+cluster <- parallel::makeCluster(n_cores - 1, type = "PSOCK")
+doParallel::registerDoParallel(cluster)
+
+tictoc::tic()
+
+rf_tune_results <- rf_wf %>%
+  tune_grid(
+    grid = rf_grid,
+    resamples = train_folds
+  )
+
+parallel::stopCluster(cluster)
+
+tictoc::toc()
+
+```
+
+```{r}
+
+rf_tune_results %>%
+  show_best(n = 10, metric = "rmse") |>
+  kable() |>
+  kable_styling()
+
+```
+
+```{r}
+
+best_rf <- rf_tune_results %>%
+  select_best(metric = "rmse")
+
+rf_wf_final <- rf_wf %>%
+  finalize_workflow(best_rf)
+
+rf_fit <- rf_wf_final %>%
+  fit(train)
+
+```
+
+```{r}
+
+rf_fit |>
+  augment(train) |>
+  rmse(.pred, price_actual) |>
+  kable() |>
+  kable_styling()
+
+```
+
+```{r}
+
+xgb_spec <- boost_tree(mtry = tune(), trees = tune(), learn_rate = tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+xgb_rec <- recipe(price_actual ~ ., data = predictors) %>%
+  step_dummy(all_nominal_predictors()) |>
+  step_other(all_nominal_predictors()) %>%
+  step_impute_median(all_numeric_predictors())
+
+xgb_wf <- workflow() %>%
+  add_model(xgb_spec) %>%
+  add_recipe(xgb_rec)
+
+xgb_grid <- grid_regular(
+  mtry(range = c(1, 10)),
+  trees(),
+  learn_rate(),
+  levels = 5
+)
+
+n_cores <- parallel::detectCores()
+cluster <- parallel::makeCluster(n_cores - 1, type = "PSOCK")
+doParallel::registerDoParallel(cluster)
+
+tictoc::tic()
+
+xgb_tune_results <- xgb_wf %>%
+  tune_grid(
+    grid = xgb_grid,
+    resamples = train_folds
+  )
+
+parallel::stopCluster(cluster)
+
+tictoc::toc()
+
+```
+
+```{r}
+
+best_xgb <- xgb_tune_results %>%
+  select_best(metric = "rmse")
+
+xgb_wf_final <- xgb_wf %>%
+  finalize_workflow(best_xgb)
+
+xgb_fit <- xgb_wf_final %>%
+  fit(train)
+
+```
+
+```{r}
+
+xgb_fit |>
+  augment(train) |>
+  rmse(.pred, price_actual) |>
+  kable() |>
+  kable_styling()
+
+```
+
+
+
+
+## Model Interpretation and Inference
+
+
+
+## Conclusion
+
+
+
+## References
